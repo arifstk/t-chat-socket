@@ -18,7 +18,7 @@ const io = new Server(server, {
   },
 });
 
-// অনলাইন ইউজারদের ট্র্যাক করার জন্য (in-memory map)
+// Map to track online users and their socket IDs
 const onlineUsers = new Map(); // userId -> socketId
 
 io.on("connection", (socket) => {
@@ -26,7 +26,7 @@ io.on("connection", (socket) => {
 
   let userId = null;
 
-  // ধাপ ১: JWT দিয়ে identity verify
+  // Step 1: Verify identity with JWT
   socket.on("identity", async (token) => {
     try {
       const decoded = jwt.verify(token, process.env.NEXTAUTH_SECRET);
@@ -34,10 +34,10 @@ io.on("connection", (socket) => {
 
       onlineUsers.set(userId, socket.id);
 
-      // ইউজারের নিজস্ব রুমে join (personal notification পাঠানোর জন্য)
+      // User's personal room (for sending personal notifications)
       socket.join(userId);
 
-      // সবাইকে জানাও এই ইউজার অনলাইন হয়েছে
+      // Notify all users that this user is online
       io.emit("user-online", { userId });
 
       await axios.post(`${process.env.NEXT_BASE_URL}/api/socket/connect`, {
@@ -53,7 +53,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // চ্যাট রুমে join করা
+  // Join a chat room
   socket.on("join-room", (chatId) => {
     console.log(`User ${userId} joined room: ${chatId}`);
     socket.join(chatId);
@@ -63,15 +63,15 @@ io.on("connection", (socket) => {
     socket.leave(chatId);
   });
 
-  // মেসেজ পাঠানো
+  // Send a message
   socket.on("send-message", async (data) => {
     try {
       const { chatId, text, mediaUrl, mediaType, token } = data;
 
-      // টোকেন ভেরিফাই (extra security layer)
+      // Verify token (extra security layer)
       const decoded = jwt.verify(token, process.env.NEXTAUTH_SECRET);
 
-      // Next.js API কল করে DB তে সেভ করা
+      // Call Next.js API to save in DB
       const response = await axios.post(
         `${process.env.NEXT_BASE_URL}/api/messages`,
         { chatId, text, mediaUrl, mediaType },
@@ -80,7 +80,7 @@ io.on("connection", (socket) => {
 
       const savedMessage = response.data.message;
 
-      // রুমের সবাইকে মেসেজ পাঠানো (নিজেসহ, UI sync এর জন্য)
+      // Send message to all users in the room (including the sender, for UI sync)
       io.to(chatId).emit("receive-message", savedMessage);
     } catch (error) {
       console.log("Send message error:", error.message);
@@ -97,7 +97,7 @@ io.on("connection", (socket) => {
     socket.to(chatId).emit("stop-typing", { chatId, userId });
   });
 
-  // মেসেজ seen হলে
+  // Message seen
   socket.on("message-seen", async ({ chatId, messageId, userId }) => {
     io.to(chatId).emit("message-seen-update", { messageId, userId });
 
@@ -111,7 +111,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ডিসকানেক্ট হ্যান্ডলিং
+  // Disconnect handling
   socket.on("disconnect", async () => {
     console.log(`User disconnected: ${socket.id}`);
 
@@ -131,7 +131,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// সার্ভার থেকে সার্ভার নোটিফিকেশন পাঠানোর কমন API
+// API endpoint to send notifications
 app.post("/notify", (req, res) => {
   const { event, data, socketId, roomId } = req.body;
 
@@ -153,3 +153,4 @@ app.get("/health", (req, res) => {
 server.listen(port, () => {
   console.log(`Socket server is running on port ${port}`);
 });
+
